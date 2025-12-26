@@ -1,0 +1,505 @@
+<!-- 
+!!! 如果您在瀏覽器上直接看到這行程式碼，表示您的檔案存成了文字檔 (.txt) !!!
+!!! 請務必依照以下步驟修正：
+1. 關閉瀏覽器。
+2. 對著這個檔案按右鍵 -> 重新命名。
+3. 將檔名後面的 ".txt" 刪除，改成 ".html"。
+   (如果您沒看到 .txt，請在檔案總管上方點選「檢視」-> 勾選「副檔名」)。
+4. 修正後圖示會變成瀏覽器的樣子，點兩下即可正常執行。
+-->
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蒙恩聽障烘焙坊參訪申請</title>
+    <!-- Tailwind CSS (樣式庫) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM (核心庫) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel (讓瀏覽器看懂 JSX) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        /* 定義淡入動畫效果 */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+        body { font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <!-- 重要：使用 data-type="module" 讓 Babel 支援 import 語法 -->
+    <script type="text/babel" data-type="module">
+        // ------------------------------------------------------------------
+        // 1. Firebase SDK Imports (Modular Version)
+        // ------------------------------------------------------------------
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js';
+        import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js';
+
+        // ------------------------------------------------------------------
+        // 2. Firebase 設定
+        // ------------------------------------------------------------------
+        const firebaseConfig = {
+            apiKey: "AIzaSyBRXTP7MpTGoyq_jm6CHFVGNY1U-zNvpPs",
+            authDomain: "deafbakery-visit.firebaseapp.com",
+            projectId: "deafbakery-visit",
+            storageBucket: "deafbakery-visit.firebasestorage.app",
+            messagingSenderId: "150016655038",
+            appId: "1:150016655038:web:046f394ecdfcbce9b6a8ef"
+        };
+
+        // 初始化 Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const COLLECTION_NAME = 'visit_applications';
+
+        const { useState, useEffect } = React;
+
+        // ------------------------------------------------------------------
+        // 3. 主程式組件 (VisitSystem)
+        // ------------------------------------------------------------------
+        const VisitSystem = () => {
+            const [user, setUser] = useState(null);
+            const [view, setView] = useState('home'); 
+            const [applications, setApplications] = useState([]);
+            const [isAdmin, setIsAdmin] = useState(false);
+            const [notification, setNotification] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [isDemoMode, setIsDemoMode] = useState(false);
+            const [configError, setConfigError] = useState(null);
+
+            // --- 驗證登入狀態 ---
+            useEffect(() => {
+                const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+                    if (currentUser) {
+                        setUser(currentUser);
+                        setConfigError(null);
+                    } else {
+                        signInAnonymously(auth).catch((error) => {
+                            console.error("匿名登入失敗:", error);
+                            setIsDemoMode(true);
+                            setUser({ uid: 'demo-user', isAnonymous: true });
+
+                            if (error.code === 'auth/configuration-not-found' || error.code === 'auth/operation-not-allowed') {
+                                setConfigError("請至 Firebase Console > Authentication 開啟「Anonymous」");
+                            } else if (error.code === 'auth/unauthorized-domain') {
+                                setConfigError(`網域未授權：請至 Firebase Console 新增網址：${window.location.hostname}`);
+                            } else {
+                                setConfigError(`連線驗證失敗 (${error.code})`);
+                            }
+                            showNotification("偵測到設定問題，已切換至本機演示模式", "warning");
+                        });
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            // --- 監聽資料庫 (僅後台) ---
+            useEffect(() => {
+                if (isDemoMode || !isAdmin || (!user && !isDemoMode)) {
+                    setLoading(false);
+                    return;
+                }
+
+                // 使用 Modular 語法
+                const q = query(collection(db, COLLECTION_NAME), orderBy('submitDate', 'desc'));
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                        const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        setApplications(apps);
+                        setLoading(false);
+                    }, (error) => {
+                        console.error("Data fetch error:", error);
+                        if (error.code === 'permission-denied') {
+                            showNotification("權限不足：請檢查 Firestore Rules", "error");
+                        }
+                        setLoading(false);
+                    });
+                return () => unsubscribe();
+            }, [isAdmin, user, isDemoMode]);
+
+            // --- 表單狀態 ---
+            const [formData, setFormData] = useState({
+                groupName: '', groupType: '', groupTypeOther: '',
+                visitDate: '', timeStart: '', timeEnd: '',
+                contactPerson: '', jobTitle: '', phone: '', email: '',
+                visitorCount: '', identity: [], disabledCount: '',
+                needs: [], needsOther: '', volunteerCert: false, expectations: ''
+            });
+
+            // 顯示通知
+            const showNotification = (message, type = 'success') => {
+                setNotification({ message, type });
+                setTimeout(() => setNotification(null), 4000);
+            };
+
+            // 處理表單輸入變更
+            const handleChange = (e) => {
+                const { name, value, type, checked } = e.target;
+                if (type === 'checkbox') {
+                    if (name === 'volunteerCert') {
+                        setFormData(prev => ({ ...prev, [name]: checked }));
+                    } else if (name === 'needs' || name === 'identity') {
+                        const val = value;
+                        setFormData(prev => {
+                            const currentList = prev[name] || []; // 確保是陣列
+                            const newList = checked ? [...currentList, val] : currentList.filter(item => item !== val);
+                            return { ...prev, [name]: newList };
+                        });
+                    }
+                } else {
+                    setFormData(prev => ({ ...prev, [name]: value }));
+                }
+            };
+
+            // 送出表單邏輯
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                const today = new Date();
+                const visitDate = new Date(formData.visitDate);
+                const diffTime = Math.abs(visitDate - today);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                if (diffDays < 30) {
+                    if(!window.confirm("提醒您：參訪建議於一個月前申請以利安排。您確定要送出嗎？")) return;
+                }
+                if (formData.identity.length === 0) {
+                    showNotification('請至少選擇一種參訪人身份別', 'error');
+                    return;
+                }
+
+                const newApp = {
+                    submitDate: new Date().toISOString().split('T')[0],
+                    createdAt: new Date().toISOString(),
+                    ...formData,
+                    groupType: formData.groupType === '其他' ? formData.groupTypeOther : formData.groupType,
+                    needs: formData.needs.includes('其他目的') ? [...formData.needs.filter(n => n !== '其他目的'), formData.needsOther] : formData.needs,
+                    status: 'pending'
+                };
+
+                if (isDemoMode) {
+                    newApp.id = Date.now().toString();
+                    setApplications(prev => [newApp, ...prev]);
+                    showNotification('演示模式：資料已暫存於瀏覽器', 'warning');
+                    setView('success');
+                    resetForm();
+                } else {
+                    try {
+                        await addDoc(collection(db, COLLECTION_NAME), newApp);
+                        showNotification('申請已送出！我們會盡快與您聯繫。');
+                        setView('success');
+                        resetForm();
+                    } catch (error) {
+                        console.error("Add doc error:", error);
+                        let errorMsg = "送出失敗，請檢查網路";
+                        if (error.code === 'permission-denied') errorMsg = "權限不足 (Firestore Rules)";
+                        showNotification(errorMsg, "error");
+                    }
+                }
+            };
+
+            const resetForm = () => {
+                setFormData({
+                    groupName: '', groupType: '', groupTypeOther: '',
+                    visitDate: '', timeStart: '', timeEnd: '',
+                    contactPerson: '', jobTitle: '', phone: '', email: '',
+                    visitorCount: '', identity: [], disabledCount: '',
+                    needs: [], needsOther: '', volunteerCert: false, expectations: ''
+                });
+            };
+
+            // 後台登入邏輯
+            const [loginData, setLoginData] = useState({ username: '', password: '' });
+            const handleLogin = (e) => {
+                e.preventDefault();
+                if (loginData.username === 'admin' && loginData.password === '22335678') {
+                    setIsAdmin(true);
+                    setView('admin-dashboard');
+                } else {
+                    showNotification('帳號或密碼錯誤', 'error');
+                }
+            };
+
+            // 更新申請狀態
+            const updateStatus = async (id, newStatus) => {
+                if (isDemoMode) {
+                    setApplications(apps => apps.map(app => app.id === id ? { ...app, status: newStatus } : app));
+                    showNotification(`狀態更新為：${newStatus} (演示)`);
+                    return;
+                }
+                try {
+                    const docRef = doc(db, COLLECTION_NAME, id);
+                    await updateDoc(docRef, { status: newStatus });
+                    showNotification(`狀態更新成功`);
+                } catch (error) {
+                    console.error(error);
+                    showNotification("更新失敗", "error");
+                }
+            };
+
+            // --- 渲染函式 (修正輸入焦點問題) ---
+            const renderHomeView = () => (
+                <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-8 animate-fade-in">
+                    {configError && (
+                        <div className="w-full max-w-2xl bg-amber-50 border-l-4 border-amber-500 text-amber-800 p-4 text-left shadow-sm">
+                            <p className="font-bold">⚠️ 系統目前處於「演示模式」</p>
+                            <p className="text-sm mt-1">{configError}</p>
+                            <p className="text-sm text-amber-600 mt-2">設定完成後，請重新整理頁面。</p>
+                        </div>
+                    )}
+                    <div className="max-w-2xl px-6">
+                        <h1 className="text-4xl font-bold text-gray-800 mb-4">蒙恩聽障烘焙坊</h1>
+                        <h2 className="text-2xl text-orange-600 mb-6 font-medium">參訪申請系統</h2>
+                        <p className="text-gray-600 mb-8 leading-relaxed">
+                            歡迎來到蒙恩！我們提供工廠導覽、志工服務與企業 ESG 合作方案。<br/>
+                            請填寫申請表，我們將安排專人帶領您認識聽障就業與烘焙的世界。
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                            <button onClick={() => setView('form')} className="px-8 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-lg font-bold shadow-lg transition-all transform hover:-translate-y-1">
+                                📝 填寫參訪申請
+                            </button>
+                            <button onClick={() => setView('admin-login')} className="px-8 py-4 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 rounded-lg text-lg font-medium transition-all">
+                                🔒 同仁登入後台
+                            </button>
+                        </div>
+                        <div className="mt-12 p-6 bg-orange-50 rounded-xl border border-orange-100 text-left text-sm text-gray-600">
+                            <h3 className="font-bold text-orange-800 mb-2">💡 參訪需知</h3>
+                            <ul className="list-disc list-inside space-y-1 ml-1">
+                                <li>請於 <strong>一個月前</strong> 提出申請，以利聯繫及安排。</li>
+                                <li>可參訪時間：週一、週三、週四、週五 09:00~16:00。</li>
+                                <li>地址：台中市北屯區北屯路210號B1。</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const renderFormView = () => (
+                <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden animate-slide-up mt-8">
+                    <div className="bg-orange-500 p-6 text-white flex justify-between items-center">
+                        <h2 className="text-2xl font-bold">📝 參訪申請表</h2>
+                        <div className="flex gap-4 items-center">
+                            {isDemoMode && <span className="bg-white/20 px-2 py-1 rounded text-xs">演示模式</span>}
+                            <button onClick={() => setView('home')} className="text-white/80 hover:text-white underline text-sm">回首頁</button>
+                        </div>
+                    </div>
+                    <form onSubmit={handleSubmit} className="p-8 space-y-8">
+                        {/* 團體資料 */}
+                        <section className="space-y-4">
+                            <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">🏢 團體資料</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">團體名稱 (申請單位) *</label>
+                                    <input required type="text" name="groupName" value={formData.groupName} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" placeholder="例如：某某公司 / 學校" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">團體性質 *</label>
+                                    <select required name="groupType" value={formData.groupType} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2">
+                                        <option value="">請選擇</option>
+                                        <option value="公司／企業">公司／企業</option>
+                                        <option value="學校">學校</option>
+                                        <option value="政府單位">政府單位</option>
+                                        <option value="社福團體">社福團體</option>
+                                        <option value="其他">其他</option>
+                                    </select>
+                                    {formData.groupType === '其他' && (
+                                        <input type="text" name="groupTypeOther" value={formData.groupTypeOther} onChange={handleChange} placeholder="請說明" className="mt-2 w-full border border-gray-300 rounded-md p-2 text-sm" />
+                                    )}
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* 參訪時間 */}
+                        <section className="space-y-4">
+                            <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">📅 預定參訪時間</h3>
+                            <p className="text-sm text-red-500 bg-red-50 p-2 rounded">※ 請預約一個月後的日期。開放時間：週一、三、四、五 09:00~16:00</p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">參訪日期 *</label>
+                                    <input required type="date" name="visitDate" value={formData.visitDate} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">開始時間 *</label>
+                                    <input required type="time" name="timeStart" value={formData.timeStart} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" min="09:00" max="16:00"/>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">結束時間 *</label>
+                                    <input required type="time" name="timeEnd" value={formData.timeEnd} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" min="09:00" max="16:00"/>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* 聯絡人 */}
+                        <section className="space-y-4">
+                            <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">👤 聯絡人資訊</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div><label className="block text-sm font-medium text-gray-700 mb-1">聯絡人姓名 *</label><input required type="text" name="contactPerson" value={formData.contactPerson} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" /></div>
+                                <div><label className="block text-sm font-medium text-gray-700 mb-1">職稱</label><input type="text" name="jobTitle" value={formData.jobTitle} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" /></div>
+                                <div><label className="block text-sm font-medium text-gray-700 mb-1">聯絡電話 *</label><input required type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" /></div>
+                                <div><label className="block text-sm font-medium text-gray-700 mb-1">Email *</label><input required type="email" name="email" value={formData.email} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" /></div>
+                            </div>
+                        </section>
+
+                        {/* 參訪細節 */}
+                        <section className="space-y-4">
+                            <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">💼 參訪細節</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">參訪總人數 *</label>
+                                    <input required type="number" name="visitorCount" value={formData.visitorCount} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" min="1" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">身份別 (可複選) *</label>
+                                    <div className="space-y-2">
+                                        <label className="flex items-center"><input type="checkbox" name="identity" value="一般身份別" checked={formData.identity.includes('一般身份別')} onChange={handleChange} className="mr-2" /> 一般身份別</label>
+                                        <div className="flex items-center flex-wrap gap-2">
+                                            <label className="flex items-center"><input type="checkbox" name="identity" value="身心障礙者" checked={formData.identity.includes('身心障礙者')} onChange={handleChange} className="mr-2" /> 身心障礙者</label>
+                                            {formData.identity.includes('身心障礙者') && <input type="number" name="disabledCount" value={formData.disabledCount} onChange={handleChange} placeholder="身障人數" className="w-24 text-sm border rounded px-2 py-1" />}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-md mt-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">參訪需求</label>
+                                <div className="space-y-2">
+                                    <label className="flex items-center"><input type="checkbox" name="needs" value="認識蒙恩與工廠導覽" checked={formData.needs.includes('認識蒙恩與工廠導覽')} onChange={handleChange} className="mr-2" /> 認識蒙恩與工廠導覽 (影片導覽)</label>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <label className="flex items-center"><input type="checkbox" name="needs" value="志工實作服務" checked={formData.needs.includes('志工實作服務')} onChange={handleChange} className="mr-2" /> 志工實作服務</label>
+                                        {formData.needs.includes('志工實作服務') && <label className="flex items-center text-sm bg-white px-2 rounded border"><input type="checkbox" name="volunteerCert" checked={formData.volunteerCert} onChange={handleChange} className="mr-2" /> 需要志工證明</label>}
+                                    </div>
+                                    <label className="flex items-center"><input type="checkbox" name="needs" value="推動企業 ESG／CSR 行動" checked={formData.needs.includes('推動企業 ESG／CSR 行動')} onChange={handleChange} className="mr-2" /> 推動企業 ESG／CSR 行動</label>
+                                    <label className="flex items-center"><input type="checkbox" name="needs" value="其他目的" checked={formData.needs.includes('其他目的')} onChange={handleChange} className="mr-2" /> 其他：</label>
+                                    {formData.needs.includes('其他目的') && <input type="text" name="needsOther" value={formData.needsOther} onChange={handleChange} className="border-b bg-transparent outline-none px-1 text-sm w-full" placeholder="請說明" />}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">參訪期待</label>
+                                <textarea name="expectations" value={formData.expectations} onChange={handleChange} rows="3" className="w-full border border-gray-300 rounded-md p-2"></textarea>
+                            </div>
+                        </section>
+
+                        <div className="pt-4 flex justify-center">
+                            <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-12 rounded-lg shadow-md transition-colors text-lg">提交申請</button>
+                        </div>
+                    </form>
+                </div>
+            );
+
+            const renderSuccessView = () => (
+                <div className="flex flex-col items-center justify-center h-[60vh] text-center animate-fade-in">
+                    <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-6">
+                        <span className="text-4xl">✅</span>
+                    </div>
+                    <h2 className="text-3xl font-bold text-gray-800 mb-4">申請已成功送出！</h2>
+                    <p className="text-gray-600 max-w-md mb-8">感謝您對蒙恩的支持。我們的同仁將會審核您的申請，並透過電話或 Email 與您聯繫。</p>
+                    <button onClick={() => setView('home')} className="text-orange-600 font-medium hover:underline">回到首頁</button>
+                </div>
+            );
+
+            const renderAdminLogin = () => (
+                <div className="flex items-center justify-center min-h-[60vh]">
+                    <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md border border-gray-100">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">同仁後台登入</h2>
+                        <form onSubmit={handleLogin} className="space-y-6">
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">帳號</label><input type="text" value={loginData.username} onChange={e => setLoginData({...loginData, username: e.target.value})} className="w-full border p-2 rounded" /></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">密碼</label><input type="password" value={loginData.password} onChange={e => setLoginData({...loginData, password: e.target.value})} className="w-full border p-2 rounded" /></div>
+                            <button type="submit" className="w-full bg-gray-800 text-white py-2 rounded hover:bg-gray-700">登入</button>
+                        </form>
+                        <div className="mt-4 text-center"><button onClick={() => setView('home')} className="text-sm text-gray-500 hover:text-gray-800">返回首頁</button></div>
+                    </div>
+                </div>
+            );
+
+            const renderAdminDashboard = () => (
+                <div className="animate-fade-in mt-8">
+                    <div className="bg-white shadow-sm border-b px-6 py-4 flex justify-between items-center mb-6 rounded-t-lg">
+                        <h2 className="text-xl font-bold text-gray-800">💼 參訪申請管理後台</h2>
+                        <button onClick={() => {setIsAdmin(false); setView('home');}} className="text-sm text-red-600 hover:text-red-700 font-medium">🚪 登出</button>
+                    </div>
+                    <div className="bg-white rounded-lg shadow overflow-x-auto">
+                        <table className="w-full text-sm text-left text-gray-500">
+                            <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
+                                <tr>
+                                    <th className="px-6 py-3">狀態</th>
+                                    <th className="px-6 py-3">參訪日期</th>
+                                    <th className="px-6 py-3">團體名稱</th>
+                                    <th className="px-6 py-3">聯絡人 / 電話 / Email</th>
+                                    <th className="px-6 py-3">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {applications.length === 0 ? <tr><td colSpan="5" className="text-center py-8">無資料</td></tr> : applications.map((app) => (
+                                    <tr key={app.id} className="bg-white border-b hover:bg-gray-50">
+                                        <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs ${app.status==='pending'?'bg-yellow-100 text-yellow-800':app.status==='contacted'?'bg-blue-100 text-blue-800':'bg-green-100 text-green-800'}`}>{app.status === 'pending' ? '待處理' : app.status === 'contacted' ? '已聯繫' : app.status === 'confirmed' ? '已確認' : app.status}</span></td>
+                                        <td className="px-6 py-4">{app.visitDate}<br/><span className="text-xs">{app.timeStart}-{app.timeEnd}</span></td>
+                                        <td className="px-6 py-4 font-bold">{app.groupName}<div className="text-xs font-normal text-gray-500">{app.visitorCount}人</div></td>
+                                        <td className="px-6 py-4">
+                                            <div className="font-medium">{app.contactPerson}</div>
+                                            <div className="text-xs text-gray-500 mt-1">📞 {app.phone}</div>
+                                            <div className="text-xs text-gray-500">✉️ {app.email}</div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <select value={app.status} onChange={(e) => updateStatus(app.id, e.target.value)} className="border rounded p-1 text-xs">
+                                                <option value="pending">待處理</option>
+                                                <option value="contacted">已聯繫</option>
+                                                <option value="confirmed">已確認</option>
+                                                <option value="rejected">無法安排</option>
+                                            </select>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+
+            // --- 3. 渲染主程式 ---
+            return (
+                <div className="min-h-screen">
+                    {/* Navbar */}
+                    <nav className="bg-white border-b px-4 py-4 flex justify-between items-center shadow-sm">
+                        <div className="flex items-center text-xl font-bold text-gray-800 cursor-pointer" onClick={()=>setView('home')}>
+                            <span className="mr-2 text-orange-600">❤️</span> 蒙恩聽障烘焙坊
+                        </div>
+                        <div className="text-sm text-gray-500">📞 (04) 2233-2525 #306 廖小姐</div>
+                    </nav>
+                    
+                    {/* Toast Notification */}
+                    {notification && (
+                        <div className={`fixed top-20 right-4 p-4 rounded shadow-lg text-white z-50 ${notification.type === 'error' ? 'bg-red-500' : 'bg-green-500'}`}>
+                            {notification.message}
+                        </div>
+                    )}
+
+                    {/* Main Content */}
+                    <main className="max-w-7xl mx-auto px-4 py-8">
+                        {view === 'home' && renderHomeView()}
+                        {view === 'form' && renderFormView()}
+                        {view === 'success' && renderSuccessView()}
+                        {view === 'admin-login' && renderAdminLogin()}
+                        {view === 'admin-dashboard' && renderAdminDashboard()}
+                    </main>
+
+                    {/* Footer */}
+                    <footer className="bg-white border-t py-6 text-center text-sm text-gray-500 mt-auto">
+                        <p>© 2025 蒙恩聽障烘焙坊</p>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<VisitSystem />);
+    </script>
+</body>
+</html>
