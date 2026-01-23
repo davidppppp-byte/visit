@@ -1,11 +1,7 @@
-<!-- 
-!!! 如果您在瀏覽器上直接看到這行程式碼，表示您的檔案存成了文字檔 (.txt) !!!
-!!! 請務必依照以下步驟修正：
-1. 關閉瀏覽器。
-2. 對著這個檔案按右鍵 -> 重新命名。
-3. 將檔名後面的 ".txt" 刪除，改成 ".html"。
-   (如果您沒看到 .txt，請在檔案總管上方點選「檢視」-> 勾選「副檔名」)。
-4. 修正後圖示會變成瀏覽器的樣子，點兩下即可正常執行。
+
+!!! 重要提醒 !!!
+1. 請務必將此檔案另存為 "index.html" (編碼 UTF-8)。
+2. 若要啟用「自動寄信」功能，請搜尋下方有 "🔴" 標記的程式碼，填入您的 EmailJS Public Key 與 Template ID。
 -->
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -20,6 +16,8 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <!-- Babel (讓瀏覽器看懂 JSX) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- EmailJS (用於發送郵件) -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     
     <style>
         /* 定義淡入動畫效果 */
@@ -39,15 +37,17 @@
     <!-- 重要：使用 data-type="module" 讓 Babel 支援 import 語法 -->
     <script type="text/babel" data-type="module">
         // ------------------------------------------------------------------
-        // 1. Firebase SDK Imports (Modular Version)
+        // 1. Firebase SDK Imports (Modular Version - 更穩定)
         // ------------------------------------------------------------------
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js';
         import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js';
 
         // ------------------------------------------------------------------
-        // 2. Firebase 設定
+        // 2. 設定區域 (Configuration)
         // ------------------------------------------------------------------
+        
+        // Firebase 設定 (無需修改)
         const firebaseConfig = {
             apiKey: "AIzaSyBRXTP7MpTGoyq_jm6CHFVGNY1U-zNvpPs",
             authDomain: "deafbakery-visit.firebaseapp.com",
@@ -57,11 +57,23 @@
             appId: "1:150016655038:web:046f394ecdfcbce9b6a8ef"
         };
 
+        // ==================================================================
+        // 🔴 EmailJS 設定 (請填入您的資訊，否則無法寄信)
+        // ==================================================================
+        const EMAILJS_PUBLIC_KEY = "YOUR_PUBLIC_KEY";   // 🔴 請填入您的 Public Key (例如: "user_XyZ123...")
+        const EMAILJS_SERVICE_ID = "service_il9ifv9";   // ✅ 已填入您提供的 Service ID
+        const EMAILJS_TEMPLATE_ID = "YOUR_TEMPLATE_ID"; // 🔴 請填入您的 Template ID (例如: "template_abc123")
+
         // 初始化 Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         const COLLECTION_NAME = 'visit_applications';
+
+        // 初始化 EmailJS
+        if (typeof emailjs !== 'undefined' && EMAILJS_PUBLIC_KEY !== "YOUR_PUBLIC_KEY") {
+            emailjs.init(EMAILJS_PUBLIC_KEY);
+        }
 
         const { useState, useEffect } = React;
 
@@ -132,7 +144,11 @@
                 groupName: '', groupType: '', groupTypeOther: '',
                 visitDate: '', timeStart: '', timeEnd: '',
                 contactPerson: '', jobTitle: '', phone: '', email: '',
-                visitorCount: '', identity: [], disabledCount: '',
+                visitorCount: '', 
+                identity: [], 
+                disabledCount: '', 
+                disabilityType: '', // 新增：障別
+                signLanguage: '',   // 新增：是否會手語
                 needs: [], needsOther: '', volunteerCert: false, expectations: ''
             });
 
@@ -153,6 +169,11 @@
                         setFormData(prev => {
                             const currentList = prev[name] || []; // 確保是陣列
                             const newList = checked ? [...currentList, val] : currentList.filter(item => item !== val);
+                            
+                            // 如果取消勾選「身心障礙者」，清空相關欄位
+                            if (name === 'identity' && val === '身心障礙者' && !checked) {
+                                return { ...prev, [name]: newList, disabledCount: '', disabilityType: '', signLanguage: '' };
+                            }
                             return { ...prev, [name]: newList };
                         });
                     }
@@ -161,19 +182,55 @@
                 }
             };
 
+            // 寄送 Email 的函式
+            const sendNotificationEmail = async (data) => {
+                if (EMAILJS_PUBLIC_KEY === "YOUR_PUBLIC_KEY") {
+                    console.warn("EmailJS 未設定，無法寄信。請編輯程式碼填入金鑰。");
+                    return;
+                }
+
+                const templateParams = {
+                    to_email: "adm@deaf.com.tw",
+                    group_name: data.groupName,
+                    contact_person: data.contactPerson,
+                    phone: data.phone,
+                    email: data.email,
+                    visit_date: data.visitDate,
+                    time: `${data.timeStart} - ${data.timeEnd}`,
+                    count: data.visitorCount,
+                    needs: data.needs.join(", "),
+                    disability_info: data.identity.includes("身心障礙者") 
+                        ? `障別: ${data.disabilityType}, 人數: ${data.disabledCount}, 手語: ${data.signLanguage || '無'}` 
+                        : "無",
+                    expectations: data.expectations
+                };
+
+                try {
+                    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, templateParams);
+                    console.log("Email sent successfully");
+                } catch (error) {
+                    console.error("Email send failed:", error);
+                    // 寄信失敗不阻擋流程，僅紀錄錯誤
+                }
+            };
+
             // 送出表單邏輯
             const handleSubmit = async (e) => {
                 e.preventDefault();
+                // 驗證
                 const today = new Date();
                 const visitDate = new Date(formData.visitDate);
-                const diffTime = Math.abs(visitDate - today);
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
+                const diffDays = Math.ceil(Math.abs(visitDate - today) / (1000 * 60 * 60 * 24));
+                
                 if (diffDays < 30) {
                     if(!window.confirm("提醒您：參訪建議於一個月前申請以利安排。您確定要送出嗎？")) return;
                 }
                 if (formData.identity.length === 0) {
                     showNotification('請至少選擇一種參訪人身份別', 'error');
+                    return;
+                }
+                if (formData.identity.includes('身心障礙者') && !formData.disabilityType) {
+                    showNotification('請選擇身心障礙類別', 'error');
                     return;
                 }
 
@@ -194,15 +251,19 @@
                     resetForm();
                 } else {
                     try {
+                        // 1. 寫入資料庫
                         await addDoc(collection(db, COLLECTION_NAME), newApp);
+                        // 2. 寄送 Email (如果已設定 EmailJS)
+                        await sendNotificationEmail(newApp);
+                        
                         showNotification('申請已送出！我們會盡快與您聯繫。');
                         setView('success');
                         resetForm();
                     } catch (error) {
-                        console.error("Add doc error:", error);
-                        let errorMsg = "送出失敗，請檢查網路";
-                        if (error.code === 'permission-denied') errorMsg = "權限不足 (Firestore Rules)";
-                        showNotification(errorMsg, "error");
+                        console.error("Submit Error:", error);
+                        let msg = "送出失敗，請檢查網路";
+                        if (error.code === 'permission-denied') msg = "權限不足 (Firestore Rules)";
+                        showNotification(msg, "error");
                     }
                 }
             };
@@ -213,6 +274,7 @@
                     visitDate: '', timeStart: '', timeEnd: '',
                     contactPerson: '', jobTitle: '', phone: '', email: '',
                     visitorCount: '', identity: [], disabledCount: '',
+                    disabilityType: '', signLanguage: '',
                     needs: [], needsOther: '', volunteerCert: false, expectations: ''
                 });
             };
@@ -233,27 +295,24 @@
             const updateStatus = async (id, newStatus) => {
                 if (isDemoMode) {
                     setApplications(apps => apps.map(app => app.id === id ? { ...app, status: newStatus } : app));
-                    showNotification(`狀態更新為：${newStatus} (演示)`);
                     return;
                 }
                 try {
-                    const docRef = doc(db, COLLECTION_NAME, id);
-                    await updateDoc(docRef, { status: newStatus });
+                    await updateDoc(doc(db, COLLECTION_NAME, id), { status: newStatus });
                     showNotification(`狀態更新成功`);
                 } catch (error) {
-                    console.error(error);
                     showNotification("更新失敗", "error");
                 }
             };
 
-            // --- 渲染函式 (修正輸入焦點問題) ---
+            // --- 畫面組件 (Functions) ---
+
             const renderHomeView = () => (
                 <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-8 animate-fade-in">
                     {configError && (
                         <div className="w-full max-w-2xl bg-amber-50 border-l-4 border-amber-500 text-amber-800 p-4 text-left shadow-sm">
                             <p className="font-bold">⚠️ 系統目前處於「演示模式」</p>
                             <p className="text-sm mt-1">{configError}</p>
-                            <p className="text-sm text-amber-600 mt-2">設定完成後，請重新整理頁面。</p>
                         </div>
                     )}
                     <div className="max-w-2xl px-6">
@@ -299,7 +358,7 @@
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">團體名稱 (申請單位) *</label>
-                                    <input required type="text" name="groupName" value={formData.groupName} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" placeholder="例如：某某公司 / 學校" />
+                                    <input required type="text" name="groupName" value={formData.groupName} onChange={handleChange} className="w-full border border-gray-300 rounded-md p-2" />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">團體性質 *</label>
@@ -361,9 +420,43 @@
                                     <label className="block text-sm font-medium text-gray-700 mb-2">身份別 (可複選) *</label>
                                     <div className="space-y-2">
                                         <label className="flex items-center"><input type="checkbox" name="identity" value="一般身份別" checked={formData.identity.includes('一般身份別')} onChange={handleChange} className="mr-2" /> 一般身份別</label>
-                                        <div className="flex items-center flex-wrap gap-2">
-                                            <label className="flex items-center"><input type="checkbox" name="identity" value="身心障礙者" checked={formData.identity.includes('身心障礙者')} onChange={handleChange} className="mr-2" /> 身心障礙者</label>
-                                            {formData.identity.includes('身心障礙者') && <input type="number" name="disabledCount" value={formData.disabledCount} onChange={handleChange} placeholder="身障人數" className="w-24 text-sm border rounded px-2 py-1" />}
+                                        
+                                        {/* 身心障礙者 選項區塊 */}
+                                        <div className="flex flex-col gap-2 p-3 bg-orange-50 rounded border border-orange-100">
+                                            <label className="flex items-center font-medium text-orange-800">
+                                                <input type="checkbox" name="identity" value="身心障礙者" checked={formData.identity.includes('身心障礙者')} onChange={handleChange} className="mr-2" /> 身心障礙者
+                                            </label>
+                                            
+                                            {/* 展開選項：只有勾選身心障礙者才出現 */}
+                                            {formData.identity.includes('身心障礙者') && (
+                                                <div className="ml-6 space-y-3 animate-fade-in">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm text-gray-700">人數：</span>
+                                                        <input type="number" name="disabledCount" value={formData.disabledCount} onChange={handleChange} placeholder="位" className="w-20 text-sm border rounded px-2 py-1" />
+                                                    </div>
+                                                    <div>
+                                                        <select name="disabilityType" value={formData.disabilityType} onChange={handleChange} className="w-full text-sm border rounded px-2 py-1">
+                                                            <option value="">請選擇障別</option>
+                                                            <option value="聽覺障礙 (聾人)">聽覺障礙 (聾人)</option>
+                                                            <option value="肢體障礙">肢體障礙</option>
+                                                            <option value="視覺障礙">視覺障礙</option>
+                                                            <option value="心智障礙">心智障礙</option>
+                                                            <option value="多重障礙">多重障礙</option>
+                                                            <option value="其他">其他</option>
+                                                        </select>
+                                                    </div>
+                                                    {/* 手語選項：只有選聽覺障礙才出現 */}
+                                                    {formData.disabilityType === '聽覺障礙 (聾人)' && (
+                                                        <div className="bg-white p-2 rounded border border-orange-200">
+                                                            <p className="text-sm text-gray-700 mb-1">請問是否會手語？</p>
+                                                            <div className="flex gap-4">
+                                                                <label className="flex items-center text-sm"><input type="radio" name="signLanguage" value="會手語" checked={formData.signLanguage === '會手語'} onChange={handleChange} className="mr-1"/> 會手語</label>
+                                                                <label className="flex items-center text-sm"><input type="radio" name="signLanguage" value="不會手語" checked={formData.signLanguage === '不會手語'} onChange={handleChange} className="mr-1"/> 不會手語</label>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -441,11 +534,21 @@
                                     <tr key={app.id} className="bg-white border-b hover:bg-gray-50">
                                         <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs ${app.status==='pending'?'bg-yellow-100 text-yellow-800':app.status==='contacted'?'bg-blue-100 text-blue-800':'bg-green-100 text-green-800'}`}>{app.status === 'pending' ? '待處理' : app.status === 'contacted' ? '已聯繫' : app.status === 'confirmed' ? '已確認' : app.status}</span></td>
                                         <td className="px-6 py-4">{app.visitDate}<br/><span className="text-xs">{app.timeStart}-{app.timeEnd}</span></td>
-                                        <td className="px-6 py-4 font-bold">{app.groupName}<div className="text-xs font-normal text-gray-500">{app.visitorCount}人</div></td>
+                                        <td className="px-6 py-4 font-bold">
+                                            {app.groupName}
+                                            <div className="text-xs font-normal text-gray-500">{app.visitorCount}人</div>
+                                            {/* 身心障礙資訊顯示區塊 */}
+                                            {app.identity.includes('身心障礙者') && (
+                                                <div className="mt-1 text-xs text-orange-600 bg-orange-50 p-1 rounded">
+                                                    障別: {app.disabilityType} ({app.disabledCount}人)<br/>
+                                                    {app.disabilityType === '聽覺障礙 (聾人)' && `手語: ${app.signLanguage}`}
+                                                </div>
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4">
                                             <div className="font-medium">{app.contactPerson}</div>
-                                            <div className="text-xs text-gray-500 mt-1">📞 {app.phone}</div>
-                                            <div className="text-xs text-gray-500">✉️ {app.email}</div>
+                                            <div className="text-xs text-gray-500 mt-1 flex items-center">📞 {app.phone}</div>
+                                            <div className="text-xs text-gray-500 flex items-center">✉️ {app.email}</div>
                                         </td>
                                         <td className="px-6 py-4">
                                             <select value={app.status} onChange={(e) => updateStatus(app.id, e.target.value)} className="border rounded p-1 text-xs">
