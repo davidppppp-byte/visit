@@ -52,8 +52,7 @@
         const { useState, useEffect } = React;
 
         // --- 獨立的畫面元件 ---
-        // 將元件移到外面，避免每次渲染主元件時重建這些函數，解決打字卡頓問題
-
+        
         const HomeView = ({ setView, configError }) => (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-8 animate-fade-in">
                 {configError && (
@@ -168,6 +167,11 @@
                                     <label className="flex items-center"><input type="checkbox" name="needs" value="志工實作服務" checked={formData.needs.includes('志工實作服務')} onChange={handleChange} className="mr-2" /> 志工實作服務</label>
                                     {formData.needs.includes('志工實作服務') && <label className="flex items-center text-sm bg-white px-2 rounded border"><input type="checkbox" name="volunteerCert" checked={formData.volunteerCert} onChange={handleChange} className="mr-2" /> 需志工證明</label>}
                                 </div>
+                                <label className="flex items-center"><input type="checkbox" name="needs" value="推動企業 ESG／CSR 行動" checked={formData.needs.includes('推動企業 ESG／CSR 行動')} onChange={handleChange} className="mr-2" /> 推動企業 ESG／CSR 行動</label>
+                                <div className="flex items-center">
+                                    <label className="flex items-center whitespace-nowrap"><input type="checkbox" name="needs" value="其他目的" checked={formData.needs.includes('其他目的')} onChange={handleChange} className="mr-2" /> 其他：</label>
+                                    {formData.needs.includes('其他目的') && <input type="text" name="needsOther" value={formData.needsOther} onChange={handleChange} className="border-b border-gray-400 bg-transparent outline-none px-2 text-sm w-full ml-2" placeholder="請說明" />}
+                                </div>
                             </div>
                         </div>
                         <div className="mt-4">
@@ -213,7 +217,6 @@
                 </div>
             </div>
         );
-
 
         const VisitSystem = () => {
             const [user, setUser] = useState(null);
