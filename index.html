@@ -42,7 +42,7 @@
         // 2. 設定區域 (Configuration)
         // ------------------------------------------------------------------
         
-        // Firebase 設定 (無需修改)
+        // Firebase 設定
         const firebaseConfig = {
             apiKey: "AIzaSyBRXTP7MpTGoyq_jm6CHFVGNY1U-zNvpPs",
             authDomain: "deafbakery-visit.firebaseapp.com",
@@ -53,11 +53,11 @@
         };
 
         // ==================================================================
-        // 🔴 EmailJS 設定 (請填入您的資訊，否則無法寄信)
+        // ✅ EmailJS 設定 (已填妥您的資訊)
         // ==================================================================
-        const EMAILJS_PUBLIC_KEY = "YOUR_PUBLIC_KEY";   // 🔴 請填入您的 Public Key (例如: "user_XyZ123...")
-        const EMAILJS_SERVICE_ID = "service_il9ifv9";   // ✅ 已填入您提供的 Service ID
-        const EMAILJS_TEMPLATE_ID = "YOUR_TEMPLATE_ID"; // 🔴 請填入您的 Template ID (例如: "template_abc123")
+        const EMAILJS_PUBLIC_KEY = "zwcWSKjIB4gx4Fpnp";   
+        const EMAILJS_SERVICE_ID = "service_il9ifv9";     
+        const EMAILJS_TEMPLATE_ID = "template_avq2dah";   
 
         // 初始化 Firebase
         const app = initializeApp(firebaseConfig);
@@ -66,7 +66,7 @@
         const COLLECTION_NAME = 'visit_applications';
 
         // 初始化 EmailJS
-        if (typeof emailjs !== 'undefined' && EMAILJS_PUBLIC_KEY !== "YOUR_PUBLIC_KEY") {
+        if (typeof emailjs !== 'undefined') {
             emailjs.init(EMAILJS_PUBLIC_KEY);
         }
 
@@ -142,8 +142,8 @@
                 visitorCount: '', 
                 identity: [], 
                 disabledCount: '', 
-                disabilityType: '', // 新增：障別
-                signLanguage: '',   // 新增：是否會手語
+                disabilityType: '', 
+                signLanguage: '',   
                 needs: [], needsOther: '', volunteerCert: false, expectations: ''
             });
 
@@ -179,11 +179,6 @@
 
             // 寄送 Email 的函式
             const sendNotificationEmail = async (data) => {
-                if (EMAILJS_PUBLIC_KEY === "YOUR_PUBLIC_KEY") {
-                    console.warn("EmailJS 未設定，無法寄信。請編輯程式碼填入金鑰。");
-                    return;
-                }
-
                 const templateParams = {
                     to_email: "adm@deaf.com.tw",
                     group_name: data.groupName,
@@ -193,11 +188,11 @@
                     visit_date: data.visitDate,
                     time: `${data.timeStart} - ${data.timeEnd}`,
                     count: data.visitorCount,
-                    needs: data.needs.join(", "),
+                    needs: data.needs.join(", ") + (data.volunteerCert ? ' (需志工證明)' : ''),
                     disability_info: data.identity.includes("身心障礙者") 
                         ? `障別: ${data.disabilityType}, 人數: ${data.disabledCount}, 手語: ${data.signLanguage || '無'}` 
                         : "無",
-                    expectations: data.expectations
+                    expectations: data.expectations || '無'
                 };
 
                 try {
@@ -205,7 +200,6 @@
                     console.log("Email sent successfully");
                 } catch (error) {
                     console.error("Email send failed:", error);
-                    // 寄信失敗不阻擋流程，僅紀錄錯誤
                 }
             };
 
@@ -241,14 +235,16 @@
                 if (isDemoMode) {
                     newApp.id = Date.now().toString();
                     setApplications(prev => [newApp, ...prev]);
-                    showNotification('演示模式：資料已暫存於瀏覽器', 'warning');
+                    showNotification('演示模式：資料已暫存於瀏覽器，並模擬寄信流程。', 'warning');
+                    // 演示模式也嘗試呼叫 EmailJS 測試是否設定正確
+                    sendNotificationEmail(newApp); 
                     setView('success');
                     resetForm();
                 } else {
                     try {
                         // 1. 寫入資料庫
                         await addDoc(collection(db, COLLECTION_NAME), newApp);
-                        // 2. 寄送 Email (如果已設定 EmailJS)
+                        // 2. 寄送 Email
                         await sendNotificationEmail(newApp);
                         
                         showNotification('申請已送出！我們會盡快與您聯繫。');
