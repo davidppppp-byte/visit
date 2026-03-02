@@ -11,6 +11,8 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <!-- Babel (讓瀏覽器看懂 JSX) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- EmailJS (用於發送郵件) -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     
     <style>
         /* 定義淡入動畫效果 */
@@ -40,7 +42,7 @@
         // 2. 設定區域 (Configuration)
         // ------------------------------------------------------------------
         
-        // Firebase 設定
+        // Firebase 設定 (無需修改)
         const firebaseConfig = {
             apiKey: "AIzaSyBRXTP7MpTGoyq_jm6CHFVGNY1U-zNvpPs",
             authDomain: "deafbakery-visit.firebaseapp.com",
@@ -51,10 +53,11 @@
         };
 
         // ==================================================================
-        // ✅ Google Apps Script 設定 (用於自動寄信)
+        // ✅ EmailJS 設定 (已填妥您的正確資訊)
         // ==================================================================
-        // 🔴 請將下方的網址替換為您剛才建立的 Google Apps Script 網頁應用程式網址
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyWmtdh8qkb6eli-qhIjUbVfN0bxFVAn4gyda5OdAtYxIugzIhKh6Z--_3L4HVWnUrl/exec"; 
+        const EMAILJS_PUBLIC_KEY = "zwcWSKjIB4gx4Fpnp";   // ✅ 已填入您提供的 Public Key
+        const EMAILJS_SERVICE_ID = "service_il9ifv9";     // ✅ 已填入您提供的 Service ID
+        const EMAILJS_TEMPLATE_ID = "template_avq2dah";   // ✅ 已填入您提供的 Template ID
 
         // 初始化 Firebase
         const app = initializeApp(firebaseConfig);
@@ -174,31 +177,35 @@
                 }
             };
 
-            // 寄送 Email 的函式 (改用 Google Apps Script)
+            // 寄送 Email 的函式
             const sendNotificationEmail = async (data) => {
-                if (GOOGLE_SCRIPT_URL === "YOUR_GOOGLE_SCRIPT_URL_HERE") {
-                    console.warn("Google Script URL 未設定，無法寄信。請編輯程式碼填入網址。");
+                if (EMAILJS_PUBLIC_KEY === "YOUR_PUBLIC_KEY" || EMAILJS_TEMPLATE_ID === "YOUR_TEMPLATE_ID") {
+                    console.warn("EmailJS 未設定，無法寄信。請編輯程式碼填入金鑰。");
                     return;
                 }
 
+                const templateParams = {
+                    to_email: "adm@deaf.com.tw",
+                    group_name: data.groupName,
+                    contact_person: data.contactPerson,
+                    phone: data.phone,
+                    email: data.email,
+                    visit_date: data.visitDate,
+                    time: `${data.timeStart} - ${data.timeEnd}`,
+                    count: data.visitorCount,
+                    needs: data.needs.join(", "),
+                    disability_info: data.identity.includes("身心障礙者") 
+                        ? `障別: ${data.disabilityType}, 人數: ${data.disabledCount}, 手語: ${data.signLanguage || '無'}` 
+                        : "無",
+                    expectations: data.expectations
+                };
+
                 try {
-                    const response = await fetch(GOOGLE_SCRIPT_URL, {
-                        method: 'POST',
-                        // 注意：對於跨網域(CORS)的 GAS POST 請求，通常使用 text/plain 模式發送 JSON 字串以避免預檢(preflight)錯誤
-                        headers: {
-                            'Content-Type': 'text/plain;charset=utf-8',
-                        },
-                        body: JSON.stringify(data)
-                    });
-                    
-                    const result = await response.json();
-                    if(result.status === 'success'){
-                         console.log("Email sent successfully via Google Script");
-                    } else {
-                         console.error("Google Script Error:", result.message);
-                    }
+                    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, templateParams);
+                    console.log("Email sent successfully");
                 } catch (error) {
-                    console.error("Fetch request failed:", error);
+                    console.error("Email send failed:", error);
+                    // 寄信失敗不阻擋流程，僅紀錄錯誤
                 }
             };
 
@@ -234,9 +241,11 @@
                 if (isDemoMode) {
                     newApp.id = Date.now().toString();
                     setApplications(prev => [newApp, ...prev]);
-                    showNotification('演示模式：資料已暫存於瀏覽器，並模擬寄信流程。', 'warning');
-                    // 演示模式也嘗試呼叫 EmailJS 測試是否設定正確
+                    showNotification('演示模式：資料已暫存於瀏覽器', 'warning');
+                    
+                    // 演示模式也嘗試寄信
                     sendNotificationEmail(newApp); 
+
                     setView('success');
                     resetForm();
                 } else {
