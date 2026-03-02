@@ -51,7 +51,7 @@
         const db = getFirestore(app);
         const COLLECTION_NAME = 'visit_applications';
 
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
         const VisitSystem = () => {
             const [user, setUser] = useState(null);
@@ -64,12 +64,20 @@
             const [configError, setConfigError] = useState(null);
 
             // --- Lucide Icons 元件 ---
-            // 因為在 CDN 環境下 React 無法直接 import lucide-react，所以我們用原生的方式渲染 SVG
+            // 修正錯誤：使用 span 作為保護層，避免 Lucide 直接替換掉 React 正在監控的 i 標籤
             const Icon = ({ name, className }) => {
+                const spanRef = useRef(null);
+
                 useEffect(() => {
-                    lucide.createIcons();
-                });
-                return <i data-lucide={name} className={className}></i>;
+                    if (window.lucide && spanRef.current) {
+                        spanRef.current.innerHTML = `<i data-lucide="${name}" class="${className || ''}"></i>`;
+                        window.lucide.createIcons({
+                            root: spanRef.current
+                        });
+                    }
+                }, [name, className]);
+
+                return <span ref={spanRef} style={{ display: 'contents' }}></span>;
             };
 
             useEffect(() => {
